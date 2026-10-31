@@ -33,6 +33,49 @@ The integration is a Local Push integration - i.e. it subscribes to notification
 ## Network Standby
 The integration requires Network Standby to be available and enabled on the AVR.  Please make sure Network Standby is enabled befoer installing the integration.
 
+## JSON-protocol receivers (STR-ZA2000ES and other STR-ZA ES models)
+
+Some receivers, including the STR-ZA2000ES, answer a JSON protocol on **port 33336**
+(the byte protocol on 33335 is also open, but far more limited). When you add the
+integration with port **33336**, it uses the JSON protocol instead, which provides:
+
+* real state on startup and push updates (no more poking volume/mute/input to learn state)
+* Main, Zone 2 and Zone 3 power, volume (dB), mute and input
+* sound field selection (`2ch` and `multi` are confirmed; any other value the receiver reports is learned automatically)
+* **Select** entities: Digital Legato Linear, Sound Optimizer, HD-D.C.S. type, Dual Mono, Dynamic Range Compression, HDMI 4K scaling / pass-through / audio out / Zone 2 audio out / Out 2 / zone priority / fast view, Zone 2 & 3 line out, display brightness
+* **Switch** entities: Pure Direct, In-Ceiling Speaker Mode, HDMI control (CEC), Auto Display, Auto Standby
+* **Number** entities (disabled by default): speaker levels and bass/treble trims
+* **Sensors**: main volume (dB), tuner frequency and preset, firmware version, IP address, speaker layout
+* a `send_command` service with **Set Feature** (`audio.dll=auto1`) and **Get Feature** (`audio.dll`) for anything not exposed as an entity
+
+Requirements on the receiver: **Setup > Network Setup > Network Standby = On** and
+**Setup > Install Setup > External Control = On**.
+
+Settings that the receiver cannot change right now (for example HDMI control, or Zone 2 volume
+while Zone 2 is off) show as *unavailable* rather than showing a wrong value.
+
+### Volume limits
+
+The receiver is controlled in dB. The slider maps -80 dB to 0 %, and **Maximum Allowed Volume**
+(options, default **0 dB**) to 100 %. Zone 2/3 have their own limit (default +20 dB).
+The integration never sends a volume above these limits. Change them under
+*Configure > Configuration*.
+
+### Known limits
+
+* Power on/off, input changes and sound field changes use the same `set` messages as volume and
+  mute, but were not exercised during protocol discovery. If one is rejected, the Home Assistant
+  log shows the receiver's reply (`NAK` or `ERR`).
+* Sound fields other than `2ch` and `multi` appear once the receiver reports them. `A.F.D.` and
+  `Movie` are listed from the web remote's button names and may need adjusting.
+* The receiver also serves a web setup page on port 80. It uses the same feature names over
+  HTTP (`POST /request.cgi`), which is how the settings above were identified.
+
+### Tests
+
+`python3 -m unittest tests.test_json_backend tests.test_entities` runs the protocol and entity
+tests against a mock receiver that replays real STR-ZA2000ES replies. They do not need Home Assistant.
+
 ## Installation
 
 The preferred installation approach is via Home Assistant Community Store - aka [HACS](https://hacs.xyz/).  
