@@ -10,7 +10,7 @@
           "host": "IP Address of the AVR",
           "name": "Name of the AVR",
           "model": "Model of the AVR",
-          "port": "Communication Port on AVR"
+          "port": "Communication Port on AVR (33336 for STR-ZA ES models using the JSON protocol)"
         },
         "description": "Enter the details for your AVR.",
         "title": "Sony AVR"
@@ -33,10 +33,11 @@
       "config": {
         "title": "AVR Configuration",
         "data": {
-          "max_volume": "Maximum Allowed Volume",
+          "max_volume": "Maximum Allowed Volume (dB for JSON-protocol receivers)",
           "ping_interval": "Number of seconds between connectivity check pings.  0 to disable",
           "initialize_by_power_cycle": "Initialize by Power Cycle on HA Restart",
-          "zones": "Zones to add as media players (Zone 2 / Zone 3)"
+          "zones": "Zones to add as media players (Zone 2 / Zone 3)",
+          "zone_max_volume": "Maximum Allowed Zone 2/3 Volume (dB, JSON-protocol receivers)"
         },
         "description": "Configuration Options for AVR"
       },
