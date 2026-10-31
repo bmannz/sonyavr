@@ -70,6 +70,12 @@ async def async_setup_entry(
 ) -> None:
     config = hass.data[DOMAIN][config_entry.entry_id]
 
+    if config.get("json"):
+        from .json_media_player import async_setup_json_entry
+
+        await async_setup_json_entry(hass, config_entry, async_add_entities, config)
+        return
+
     if config_entry.options:
         config.update(config_entry.options)
 

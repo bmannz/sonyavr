@@ -19,6 +19,12 @@ async def async_setup_entry(
 ) -> None:
     config = hass.data[DOMAIN][config_entry.entry_id]
 
+    if config.get("json"):
+        from .json_sensor import build_json_sensors
+
+        async_add_entities(build_json_sensors(config["sonyavr"]))
+        return
+
     if config_entry.options:
         config.update(config_entry.options)
 

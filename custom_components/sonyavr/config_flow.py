@@ -23,6 +23,8 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_ZONE_MAX_VOLUME,
+    JSON_PORT,
     CONF_MAX_VOLUME,
     CONF_PING_INTERVAL,
     CONF_POWER_CYCLE_INIT,
@@ -32,6 +34,7 @@ from .const import (
     CONF_ZONES,
     DOMAIN,
 )
+from .jsondevice import INPUT_NAMES, SOUND_FIELD_NAMES
 from .sonyavr import SOUND_FIELD_MENU_MAP, SOURCE_MENU_MAP
 from .source_names import clean_names
 
@@ -91,6 +94,56 @@ SHOW_SCHEMA = probatio.Schema(
 )
 
 
+JSON_OPTIONS_SCHEMA = probatio.Schema(
+    {
+        probatio.Optional(CONF_MAX_VOLUME): probatio.All(
+            NumberSelector(
+                NumberSelectorConfig(
+                    min=-80, max=23, mode=NumberSelectorMode.SLIDER, unit_of_measurement="dB"
+                )
+            ),
+            probatio.Coerce(int),
+        ),
+        probatio.Optional(CONF_ZONE_MAX_VOLUME): probatio.All(
+            NumberSelector(
+                NumberSelectorConfig(
+                    min=-80, max=23, mode=NumberSelectorMode.SLIDER, unit_of_measurement="dB"
+                )
+            ),
+            probatio.Coerce(int),
+        ),
+        probatio.Optional(CONF_ZONES): SelectSelector(
+            SelectSelectorConfig(
+                options=["Zone 2", "Zone 3"],
+                multiple=True,
+                mode=SelectSelectorMode.LIST,
+            )
+        ),
+    }
+)
+
+
+def show_schema(sources: list[str], modes: list[str]) -> probatio.Schema:
+    return probatio.Schema(
+        {
+            probatio.Optional(CONF_SOURCES): SelectSelector(
+                SelectSelectorConfig(
+                    options=sorted(sources, key=str.casefold),
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
+            probatio.Optional(CONF_SOUND_MODES): SelectSelector(
+                SelectSelectorConfig(
+                    options=sorted(modes, key=str.casefold),
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
+        }
+    )
+
+
 async def validate_auth(hass: core.HomeAssistant, data: dict) -> None:
     if "host" not in data.keys():
         data["host"] = ""
@@ -148,6 +201,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="init", menu_options=["config", "show", "names"]
         )
 
+    @property
+    def _is_json(self) -> bool:
+        try:
+            return int(self.config_entry.data.get(CONF_PORT, 33335)) == JSON_PORT
+        except (TypeError, ValueError):
+            return False
+
+    @property
+    def _source_names(self) -> list[str]:
+        return list(INPUT_NAMES.values() if self._is_json else SOURCE_MENU_MAP.values())
+
+    @property
+    def _mode_names(self) -> list[str]:
+        return list(
+            SOUND_FIELD_NAMES.values() if self._is_json else SOUND_FIELD_MENU_MAP.values()
+        )
+
     def _save(self, new: dict[str, Any]):
         return self.async_create_entry(
             title="", data={**self.config_entry.options, **new}
@@ -160,6 +230,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self._save({CONF_ZONES: [], **user_input})
 
         options = self.config_entry.options
+        if self._is_json:
+            return self.async_show_form(
+                step_id="config",
+                data_schema=self.add_suggested_values_to_schema(
+                    JSON_OPTIONS_SCHEMA,
+                    {
+                        CONF_MAX_VOLUME: options.get(CONF_MAX_VOLUME, 0),
+                        CONF_ZONE_MAX_VOLUME: options.get(CONF_ZONE_MAX_VOLUME, 20),
+                        CONF_ZONES: options.get(CONF_ZONES, []),
+                    },
+                ),
+            )
         return self.async_show_form(
             step_id="config",
             data_schema=self.add_suggested_values_to_schema(
@@ -182,14 +264,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="show",
             data_schema=self.add_suggested_values_to_schema(
-                SHOW_SCHEMA,
+                show_schema(self._source_names, self._mode_names),
                 {
-                    CONF_SOURCES: options.get(
-                        CONF_SOURCES, list(SOURCE_MENU_MAP.values())
-                    ),
-                    CONF_SOUND_MODES: options.get(
-                        CONF_SOUND_MODES, list(SOUND_FIELD_MENU_MAP.values())
-                    ),
+                    CONF_SOURCES: options.get(CONF_SOURCES, self._source_names),
+                    CONF_SOUND_MODES: options.get(CONF_SOUND_MODES, self._mode_names),
                 },
             ),
         )
@@ -199,14 +277,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self._save({CONF_SOURCE_NAMES: clean_names(user_input)})
 
-        sources = self.config_entry.options.get(CONF_SOURCES) or list(
-            SOURCE_MENU_MAP.values()
-        )
+        sources = self.config_entry.options.get(CONF_SOURCES) or self._source_names
         current = self.config_entry.options.get(CONF_SOURCE_NAMES, {})
         schema = probatio.Schema(
             {
                 probatio.Optional(source, default=current.get(source, "")): TextSelector()
-                for source in sorted(SOURCE_MENU_MAP.values(), key=str.casefold)
+                for source in sorted(self._source_names, key=str.casefold)
                 if source in sources
             }
         )

@@ -7,6 +7,14 @@ CONF_SOURCES = "sources"
 CONF_ZONES = "zones"
 CONF_SOUND_MODES = "sound_modes"
 CONF_SOURCE_NAMES = "source_names"
+CONF_ZONE_MAX_VOLUME = "zone_max_volume"
+
+# Receivers using the JSON protocol (TCP 33336), e.g. STR-ZA2000ES
+JSON_PORT = 33336
+MIN_VOLUME_DB = -80.0
+DEFAULT_MAX_VOLUME_DB = 0.0
+DEFAULT_ZONE_MAX_VOLUME_DB = 20.0
+VOLUME_STEP_DB = 0.5
 
 DOMAIN = "sonyavr"
 DEFAULT_NAME = "SONY AVR"

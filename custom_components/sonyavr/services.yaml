@@ -26,9 +26,11 @@ send_command:
             - Set Sound Field
             - Set Source
             - Byte Array String
+            - Set Feature
+            - Get Feature
     Value:
       name: Command Value
-      description: 'The value associated with the command.'
+      description: 'The value associated with the command. For Set Feature use feature=value (e.g. audio.dll=auto1); for Get Feature give the feature name. JSON-protocol receivers (port 33336) only.'
       required: false
       selector:
         text:
