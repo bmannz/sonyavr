@@ -31,8 +31,15 @@ SUPPORT_MAIN = (
     | MediaPlayerEntityFeature.VOLUME_MUTE
     | MediaPlayerEntityFeature.SELECT_SOURCE
     | MediaPlayerEntityFeature.SELECT_SOUND_MODE
+    | MediaPlayerEntityFeature.NEXT_TRACK  # next/previous tuner preset
+    | MediaPlayerEntityFeature.PREVIOUS_TRACK
 )
-SUPPORT_ZONE = SUPPORT_MAIN & ~MediaPlayerEntityFeature.SELECT_SOUND_MODE
+SUPPORT_ZONE = (
+    SUPPORT_MAIN
+    & ~MediaPlayerEntityFeature.SELECT_SOUND_MODE
+    & ~MediaPlayerEntityFeature.NEXT_TRACK
+    & ~MediaPlayerEntityFeature.PREVIOUS_TRACK
+)
 
 
 async def async_setup_json_entry(
@@ -170,8 +177,30 @@ class SonyJsonMediaPlayer(_PlayerCommands, SonyJsonEntity, MediaPlayerEntity):
         return self._device.sound_mode()
 
     @property
+    def media_title(self) -> str | None:
+        """Tuner station name (or frequency) while on the FM/AM tuner."""
+        name, frequency = self._device.tuner_station()
+        return name or frequency
+
+    @property
+    def media_channel(self) -> str | None:
+        return self._device.tuner_station()[1]
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"volume": self._device.volume_db()}
+
+    async def async_media_next_track(self) -> None:
+        await self._preset_step(True)
+
+    async def async_media_previous_track(self) -> None:
+        await self._preset_step(False)
+
+    async def _preset_step(self, up: bool) -> None:
+        if self._device.tuner_band() is None:
+            raise HomeAssistantError("Select the FM or AM tuner input to change presets")
+        if not await self._device.async_preset_step(up):
+            raise HomeAssistantError("The receiver rejected the preset change")
 
     async def async_turn_on(self) -> None:
         await self._device.async_set_power(True)

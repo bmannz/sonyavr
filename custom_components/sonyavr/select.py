@@ -6,9 +6,13 @@ from homeassistant import config_entries, core
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.entity import EntityCategory
 
+from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
+
 from .const import DOMAIN
+from .jsonclient import CONNECTION
 from .jsondevice import SELECTS, SelectDef, SonyJsonDevice
-from .jsonentity import SonyJsonFeatureEntity
+from .jsonentity import SonyJsonEntity, SonyJsonFeatureEntity
 
 
 async def async_setup_entry(
@@ -20,7 +24,10 @@ async def async_setup_entry(
     if not config.get("json"):
         return
     device: SonyJsonDevice = config["sonyavr"]
-    async_add_entities([SonyJsonSelect(device, definition) for definition in SELECTS])
+    async_add_entities(
+        [SonyJsonSelect(device, definition) for definition in SELECTS]
+        + [SonyJsonTunerStation(device)]
+    )
 
 
 class SonyJsonSelect(SonyJsonFeatureEntity, SelectEntity):
@@ -46,3 +53,39 @@ class SonyJsonSelect(SonyJsonFeatureEntity, SelectEntity):
         raw = self._raw[option]
         value = int(raw) if self._def.numeric else raw
         await self._device.async_set_feature(self._feature, value)
+
+
+class SonyJsonTunerStation(SonyJsonEntity, SelectEntity):
+    """Pick a stored FM/AM preset; switches the main zone to the tuner if needed."""
+
+    _attr_name = "Tuner station"
+    _attr_icon = "mdi:radio"
+    _TRIGGERS = ("main.input", "tuner.preset", "tuner.band")
+
+    def __init__(self, device: SonyJsonDevice) -> None:
+        super().__init__(device)
+        self._attr_unique_id = f"{device.unique_base}_tuner_station"
+
+    @callback
+    def _handle_change(self, changed: set[str]) -> None:
+        if (
+            CONNECTION in changed
+            or changed.intersection(self._TRIGGERS)
+            or any("preset" in feature for feature in changed)
+        ):
+            self.async_write_ha_state()
+
+    @property
+    def options(self) -> list[str]:
+        return list(self._device.preset_options())
+
+    @property
+    def current_option(self) -> str | None:
+        return self._device.current_preset_label()
+
+    async def async_select_option(self, option: str) -> None:
+        target = self._device.preset_options().get(option)
+        if target is None:
+            raise HomeAssistantError(f"Unknown station {option!r}")
+        if not await self._device.async_tune_preset(*target):
+            raise HomeAssistantError(f"The receiver would not tune {option}")

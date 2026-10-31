@@ -162,6 +162,17 @@ TRIMS = tuple(d.feature for d in NUMBERS)
 TUNER = ("tuner.frequency", "tuner.band", "tuner.preset")
 INFO = ("system.version", "network.ipaddress", "network.macaddress", "speaker.pattern")
 
+TUNER_BANDS = ("fm", "am")  # also the main.input values for the tuner
+PRESET_COUNT = 30
+# An untouched preset slot holds these defaults and no name
+PRESET_DEFAULT_FREQ = {"fm": 8750, "am": 531}
+PRESETS = tuple(
+    f"{band.upper()}preset{n}.{field}"
+    for band in TUNER_BANDS
+    for n in range(1, PRESET_COUNT + 1)
+    for field in ("name", "frequency")
+)
+
 SETTLE_DELAY = 3.0  # seconds after a power change before re-reading settings
 SLOW_REFRESH_EVERY = 10  # periodic ticks between settings refreshes
 
@@ -414,7 +425,7 @@ class SonyJsonDevice:
 
     async def async_refresh_all(self) -> None:
         self._ticks = 0
-        await self._get_all(CORE + INFO + SETTINGS + TUNER + TRIMS)
+        await self._get_all(CORE + INFO + SETTINGS + TUNER + TRIMS + PRESETS)
 
     async def async_refresh_core(self) -> None:
         await self._get_all(CORE)
@@ -472,6 +483,96 @@ class SonyJsonDevice:
             self._settle_task = self._spawn(settle(), "sonyavr settle")
         else:
             self._settle_task = asyncio.get_running_loop().create_task(settle())
+
+    # ------------------------------------------------------------------ tuner
+
+    def tuner_band(self) -> str | None:
+        """"fm" or "am" while the main zone is on the tuner, else None."""
+        band = self.value("main.input")
+        return band if band in TUNER_BANDS else None
+
+    @staticmethod
+    def frequency_text(band: str, frequency: Any) -> str | None:
+        if not isinstance(frequency, (int, float)):
+            return None
+        if band == "am":
+            return f"{int(frequency)} kHz"
+        return f"{frequency / 100:.2f} MHz"  # the receiver reports 8750 for 87.50 MHz
+
+    def preset_info(self, band: str, number: int) -> tuple[str, str | None] | None:
+        """(name, frequency text) for a stored preset, or None if the slot is unused."""
+        name = self.value(f"{band.upper()}preset{number}.name")
+        frequency = self.value(f"{band.upper()}preset{number}.frequency")
+        name = name.strip() if isinstance(name, str) else ""
+        if not name and frequency in (None, PRESET_DEFAULT_FREQ[band]):
+            return None
+        return name, self.frequency_text(band, frequency)
+
+    def _preset_label(self, band: str, number: int) -> str:
+        info = self.preset_info(band, number)
+        if info:
+            name, freq = info
+        else:  # unused slot (only shown if it is the one currently tuned)
+            name = ""
+            freq = self.frequency_text(band, self.value(f"{band.upper()}preset{number}.frequency"))
+        return f"{band.upper()} {number}: {name or freq or 'unused'}"
+
+    def preset_options(self) -> dict[str, tuple[str, int]]:
+        """Label -> (band, number) for every stored preset, plus the current one."""
+        options: dict[str, tuple[str, int]] = {}
+        for band in TUNER_BANDS:
+            for number in range(1, PRESET_COUNT + 1):
+                if self.preset_info(band, number):
+                    options[self._preset_label(band, number)] = (band, number)
+        current = self.current_preset()
+        if current and current not in options.values():
+            options[self._preset_label(*current)] = current
+        return options
+
+    def current_preset(self) -> tuple[str, int] | None:
+        band = self.tuner_band()
+        number = self.value("tuner.preset")
+        if band and isinstance(number, int) and 1 <= number <= PRESET_COUNT:
+            return band, number
+        return None  # not on the tuner, or tuned to a frequency that is not a preset
+
+    def current_preset_label(self) -> str | None:
+        current = self.current_preset()
+        return self._preset_label(*current) if current else None
+
+    def tuner_station(self) -> tuple[str | None, str | None]:
+        """(station name, frequency text) while on the tuner."""
+        band = self.tuner_band()
+        if band is None:
+            return None, None
+        freq = self.frequency_text(band, self.value("tuner.frequency"))
+        current = self.current_preset()
+        info = self.preset_info(*current) if current else None
+        return (info[0] or None) if info else None, freq
+
+    async def async_tune_preset(self, band: str, number: int) -> bool:
+        """Tune a stored preset, switching the main zone to that tuner band first."""
+        if self.value("main.input") != band:
+            if not await self._set("main.input", band, read_back=False):
+                return False
+            for _ in range(40):  # wait for the receiver to report the new input
+                if self.value("main.input") == band:
+                    break
+                await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
+        for attempt in range(2):
+            if await self._set("tuner.preset", number, read_back=False):
+                return True
+            if attempt == 0:
+                await asyncio.sleep(1.0)  # right after an input change it may still be busy
+        return False
+
+    async def async_preset_step(self, up: bool) -> bool:
+        """Next/previous preset (the receiver's own remote button); tuner input only."""
+        if self.tuner_band() is None:
+            return False
+        feature = "GUI.tunerpreup" if up else "GUI.tunerpredown"
+        return await self._set(feature, "main", read_back=False)
 
     # ------------------------------------------------------------- raw helpers
 
